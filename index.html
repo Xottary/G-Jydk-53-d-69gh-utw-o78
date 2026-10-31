@@ -22,8 +22,8 @@
             
             <div id="auth-error" class="auth-error"></div>
             
+            <!-- Оставили только кнопку ВОЙТИ -->
             <button id="btn-login" class="btn-submit">ВОЙТИ</button>
-            <button id="btn-register" class="btn-submit" style="background: rgba(0, 100, 130, 0.8); border-color: #00a8b5; margin-top: 10px;">РЕГИСТРАЦИЯ</button>
         </div>
     </div>
 
@@ -110,18 +110,50 @@
                             <input type="date" id="class-date" required>
                         </div>
                         <div class="form-group">
+                            <label for="class-time-preset">Time Slot</label>
+                            <select id="class-time-preset">
+                                <option value="08:30-10:00">08:30 – 10:00</option>
+                                <option value="10:15-11:45">10:15 – 11:45</option>
+                                <option value="12:30-14:00">12:30 – 14:00</option>
+                                <option value="14:15-15:45">14:15 – 15:45</option>
+                                <option value="16:00-17:30">16:00 – 17:30</option>
+                                <option value="18:00-19:30">18:00 – 19:30</option>
+                                <option value="19:40-21:10">19:40 – 21:10</option>
+                                <option value="08:00-17:30">08:00 – 17:30 (Практика)</option>
+                                <option value="custom">Своё время...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Скрытые поля для ввода своего времени -->
+                    <div class="form-row" id="custom-time-inputs" style="display: none;">
+                        <div class="form-group">
                             <label for="class-start">Start</label>
-                            <input type="time" id="class-start" required>
+                            <input type="time" id="class-start">
                         </div>
                         <div class="form-group">
                             <label for="class-end">End</label>
-                            <input type="time" id="class-end" required>
+                            <input type="time" id="class-end">
                         </div>
                     </div>
+
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label for="class-title">Title</label>
-                            <input type="text" id="class-title" placeholder="History of Pskov Region" required>
+                            <input type="text" id="class-title" placeholder="Выберите или введите предмет..." list="subject-list" required>
+                            <datalist id="subject-list">
+                                <option value="ИПК 3"></option>
+                                <option value="МОО"></option>
+                                <option value="ИИН 1"></option>
+                                <option value="ИИН 2"></option>
+                                <option value="ВИ 7"></option>
+                                <option value="ВИ 8"></option>
+                                <option value="РИ 7"></option>
+                                <option value="РИ 8"></option>
+                                <option value="Производственная практика"></option>
+                                <option value="ПДПС"></option>
+                                <option value="ЕПвИИ"></option>
+                            </datalist>
                         </div>
                         <div class="form-group">
                             <label for="class-type">Type</label>
@@ -229,6 +261,7 @@
 
     <!-- ================= TOAST CONTAINER ================= -->
     <div id="toast-container"></div>
+    
     <!-- Firebase SDK -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -244,12 +277,10 @@
         appId: "1:94235054724:web:e11d543ee312da01c5a8d1"
       };
 
-      // Инициализация
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
       const db = getFirestore(app);
 
-      // Делаем их доступными для нашего основного скрипта
       window.firebaseAuth = auth;
       window.firebaseDB = db;
       window.firebaseModules = { 
@@ -263,21 +294,17 @@
       };
       
       console.log("Firebase успешно подключен!");
-       // Говорим основному скрипту, что Firebase готов
       if (window.initAuth) window.initAuth();
     </script>
-    <script src="script.js"defer></script>
+    <script src="script.js" defer></script>
+    
      <!-- Регистрация Service Worker для PWA -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('./sw.js')
-            .then(registration => {
-              console.log('ServiceWorker успешно зарегистрирован!');
-            })
-            .catch(err => {
-              console.log('Ошибка регистрации ServiceWorker:', err);
-            });
+            .then(registration => { console.log('ServiceWorker успешно зарегистрирован!'); })
+            .catch(err => { console.log('Ошибка регистрации ServiceWorker:', err); });
         });
       }
     </script>

@@ -3,7 +3,6 @@
     var authScreen = document.getElementById('auth-screen');
     var appScreen = document.getElementById('app');
     var btnLogin = document.getElementById('btn-login');
-    var btnRegister = document.getElementById('btn-register');
     var authEmail = document.getElementById('auth-email');
     var authPassword = document.getElementById('auth-password');
     var authError = document.getElementById('auth-error');
@@ -12,7 +11,6 @@
         if(authError) authError.textContent = msg;
     }
 
-    // Вызывается из index.html, когда Firebase готов
     window.initAuth = function() {
         window.firebaseModules.onAuthStateChanged(window.firebaseAuth, async (user) => {
             if (user) {
@@ -20,7 +18,6 @@
                 authScreen.classList.add('hidden');
                 appScreen.classList.remove('hidden');
                 
-                // ЗАГРУЗКА ДАННЫХ ИЗ ОБЛАКА ПРИ ВХОДЕ
                 try {
                     var docRef = window.firebaseModules.doc(window.firebaseDB, "users", user.uid);
                     var docSnap = await window.firebaseModules.getDoc(docRef);
@@ -42,10 +39,12 @@
                     // Обновляем интерфейс новыми данными
                     loadHP(); loadDT(); loadStyle(); renderTasks(); renderCalendar();
                     
+                    // Проверяем награду при входе (вдруг ДТ уже 100%)
+                    checkDTReward();
+                    
                 } catch (error) {
                     console.error("Ошибка загрузки из облака:", error);
                 }
-                
             } else {
                 authScreen.classList.remove('hidden');
                 appScreen.classList.add('hidden');
@@ -53,7 +52,7 @@
         });
     };
 
-    // Кнопка ВОЙТИ
+    // Кнопка ВОЙТИ (регистрацию мы убрали)
     if (btnLogin) {
         btnLogin.addEventListener('click', function() {
             showAuthError('');
@@ -63,23 +62,7 @@
 
             window.firebaseModules.signInWithEmailAndPassword(window.firebaseAuth, email, password)
                 .catch((error) => {
-                    showAuthError('Ошибка: ' + error.message);
-                });
-        });
-    }
-
-    // Кнопка РЕГИСТРАЦИЯ
-    if (btnRegister) {
-        btnRegister.addEventListener('click', function() {
-            showAuthError('');
-            var email = authEmail.value.trim();
-            var password = authPassword.value;
-            if (!email || !password) { showAuthError('Введите email и пароль'); return; }
-            if (password.length < 6) { showAuthError('Пароль должен быть не менее 6 символов'); return; }
-
-            window.firebaseModules.createUserWithEmailAndPassword(window.firebaseAuth, email, password)
-                .catch((error) => {
-                    showAuthError('Ошибка: ' + error.message);
+                    showAuthError('Ошибка входа. Проверьте почту и пароль.');
                 });
         });
     }
@@ -164,7 +147,7 @@
     // ==================== СИНХРОНИЗАЦИЯ С ОБЛАКОМ ====================
     function syncToCloud() {
         var user = window.firebaseAuth.currentUser;
-        if (!user) return; // Если не вошел, ничего не отправляем
+        if (!user) return;
 
         var dataToSync = {
             tasks: JSON.parse(localStorage.getItem(STORAGE_KEY)) || [],
@@ -215,6 +198,7 @@
         localStorage.setItem(DT_KEY, dt.toString());
         updateDTBar();
         syncToCloud();
+        checkDTReward(); // <--- Исправление: проверяем награду сразу при сохранении ДТ
     }
     
     function loadStyle() {
@@ -347,6 +331,7 @@
         tasks.push({ id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), title: title, deadline: deadline, severity: severity, completed: false, createdAt: new Date().toISOString() });
         saveTasks(tasks);
         renderTasks();
+        checkOverdueTasks(); // <--- Проверяем просрочку сразу после добавления
     }
 
     function deleteTask(id) {
@@ -401,7 +386,8 @@
         
         var lastClaimed = localStorage.getItem(REWARD_CLAIM_KEY);
 
-        if ((dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0) && lastClaimed !== currentWeek) {
+        // ВРЕМЕННО УБРАЛИ ПРОВЕРКУ НА ВЫХОДНЫЕ, ЧТОБЫ ТЫ МОГЛА ПРОВЕРИТЬ ОКНО
+        if (lastClaimed !== currentWeek) {
             var savedReward = localStorage.getItem(REWARD_KEY) || '';
             var rewardInput = document.getElementById('dt-reward-input');
             if(rewardInput) rewardInput.value = savedReward;
@@ -421,7 +407,7 @@
             var newReward = prompt("Ваша награда за полный Devil Trigger:", currentReward);
             if (newReward !== null) {
                 localStorage.setItem(REWARD_KEY, newReward);
-                syncToCloud(); // Синхронизация награды
+                syncToCloud();
                 showToast("Dante", "praise");
             }
         });
@@ -432,7 +418,7 @@
         saveRewardBtn.addEventListener('click', function() {
             var text = document.getElementById('dt-reward-input').value;
             localStorage.setItem(REWARD_KEY, text);
-            syncToCloud(); // Синхронизация награды
+            syncToCloud();
             showToast("Dante", "praise"); 
         });
     }
@@ -447,7 +433,7 @@
 
             localStorage.setItem(REWARD_CLAIM_KEY, currentWeek);
             dt = 0;
-            saveDT(); // Внутри saveDT уже есть синхронизация
+            saveDT(); 
 
             var modal = document.getElementById('dt-reward-modal');
             modal.classList.remove('show');
@@ -617,13 +603,25 @@
         var tasks = loadTasks();
         var classes = loadClasses();
 
+        // Выводим пары (синие) + кнопки управления
         classes.filter(c => c.date === dateStr).sort((a,b) => a.startTime.localeCompare(b.startTime)).forEach(function(cls) {
             var div = document.createElement('div');
             div.className = 'modal-item blue';
-            div.innerHTML = '<strong>' + cls.startTime + ' - ' + cls.endTime + '</strong><br>' + cls.title + ' (' + cls.type + ', ' + cls.room + ')';
+            
+            var innerHTML = '<strong>' + cls.startTime + ' - ' + cls.endTime + '</strong><br>' + cls.title + ' (' + cls.type + ', ' + cls.room + ')';
+            
+            // Кнопки для пар
+            innerHTML += '<div style="margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap;">' +
+                         '<button class="btn-complete" onclick="window.editClass(\'' + cls.id + '\', \'' + dateStr + '\')">ИЗМЕНИТЬ</button>' +
+                         '<button style="background:#c0a060; color:#000; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;" onclick="window.moveClass(\'' + cls.id + '\', \'' + dateStr + '\')">ПЕРЕДВИНУТЬ</button>' +
+                         '<button class="btn-delete" onclick="window.deleteClass(\'' + cls.id + '\', \'' + dateStr + '\')">УДАЛИТЬ</button>' +
+                         '</div>';
+                         
+            div.innerHTML = innerHTML;
             list.appendChild(div);
         });
 
+        // Выводим задачи (красные) + кнопки управления
         tasks.forEach(function(task) {
             if (!task.deadline) return;
             var tDate = new Date(task.deadline);
@@ -654,6 +652,7 @@
         modal.classList.remove('hidden');
     }
 
+    // ==================== КНОПКИ В МОДАЛКЕ ЗАДАЧ ====================
     window.completeFromModal = function(id, dateStr) {
         completeTask(id);
         var d = new Date(dateStr + 'T12:00:00Z'); 
@@ -683,6 +682,61 @@
         }
     };
 
+    // ==================== КНОПКИ В МОДАЛКЕ ПАР ====================
+    window.deleteClass = function(id, dateStr) {
+        if(confirm("Удалить эту пару?")) {
+            var classes = loadClasses();
+            var filtered = classes.filter(c => c.id !== id);
+            saveClasses(filtered);
+            var d = new Date(dateStr + 'T12:00:00Z');
+            showDayDetails(dateStr, d);
+        }
+    };
+
+    window.moveClass = function(id, currentDateStr) {
+        var newDate = prompt("Введите новую дату (Формат: ГГГГ-ММ-ДД):", currentDateStr);
+        if (newDate) {
+            var classes = loadClasses();
+            for(var i=0; i<classes.length; i++) {
+                if(classes[i].id === id) {
+                    classes[i].date = newDate;
+                    break;
+                }
+            }
+            saveClasses(classes); 
+            renderCalendar();
+            document.getElementById('day-modal').classList.add('hidden');
+        }
+    };
+
+    window.editClass = function(id, dateStr) {
+        var classes = loadClasses();
+        for(var i=0; i<classes.length; i++) {
+            if(classes[i].id === id) {
+                var newTitle = prompt("Название предмета:", classes[i].title);
+                if (newTitle === null) return; 
+                
+                var newRoom = prompt("Аудитория:", classes[i].room);
+                if (newRoom === null) return;
+                
+                var newStart = prompt("Время начала (ЧЧ:ММ):", classes[i].startTime);
+                if (newStart === null) return;
+                
+                var newEnd = prompt("Время конца (ЧЧ:ММ):", classes[i].endTime);
+                if (newEnd === null) return;
+
+                classes[i].title = newTitle;
+                classes[i].room = newRoom;
+                classes[i].startTime = newStart;
+                classes[i].endTime = newEnd;
+                break;
+            }
+        }
+        saveClasses(classes);
+        var d = new Date(dateStr + 'T12:00:00Z');
+        showDayDetails(dateStr, d);
+    };
+
     var closeModalBtn = document.getElementById('close-modal');
     if(closeModalBtn) {
         closeModalBtn.addEventListener('click', function() {
@@ -700,7 +754,7 @@
             if (noteText.trim() === '') delete notes[dateStr];
             else notes[dateStr] = noteText;
             localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-            syncToCloud(); // Синхронизация заметки
+            syncToCloud();
             showToast("Dante", "praise"); 
         });
     }
@@ -744,22 +798,64 @@
     }
 
     // ==================== ДОБАВЛЕНИЕ ПАР ====================
+    var classTimePreset = document.getElementById('class-time-preset');
+    var customTimeInputs = document.getElementById('custom-time-inputs');
+    var classStartInput = document.getElementById('class-start');
+    var classEndInput = document.getElementById('class-end');
+
+    if (classTimePreset) {
+        classTimePreset.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                customTimeInputs.style.display = 'flex';
+                classStartInput.required = true;
+                classEndInput.required = true;
+            } else {
+                customTimeInputs.style.display = 'none';
+                classStartInput.required = false;
+                classEndInput.required = false;
+            }
+        });
+    }
+
     var classForm = document.getElementById('class-form');
     if (classForm) {
         classForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            
+            var startTime = '';
+            var endTime = '';
+            
+            if (classTimePreset.value === 'custom') {
+                startTime = classStartInput.value;
+                endTime = classEndInput.value;
+                if (!startTime || !endTime) {
+                    alert('Пожалуйста, укажите время начала и конца!');
+                    return;
+                }
+            } else {
+                var times = classTimePreset.value.split('-');
+                startTime = times[0];
+                endTime = times[1];
+            }
+
             var classes = loadClasses();
             classes.push({
                 id: Date.now().toString(),
                 date: document.getElementById('class-date').value,
-                startTime: document.getElementById('class-start').value,
-                endTime: document.getElementById('class-end').value,
+                startTime: startTime,
+                endTime: endTime,
                 title: document.getElementById('class-title').value,
                 type: document.getElementById('class-type').value,
                 room: document.getElementById('class-room').value
             });
+            
             saveClasses(classes); 
             this.reset(); 
+            
+            customTimeInputs.style.display = 'none';
+            classStartInput.required = false;
+            classEndInput.required = false;
+            
             renderCalendar();
         });
     }
