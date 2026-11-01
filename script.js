@@ -36,10 +36,7 @@
                         console.log("Облако пустое. Это первый вход.");
                     }
                     
-                    // Обновляем интерфейс новыми данными
                     loadHP(); loadDT(); loadStyle(); renderTasks(); renderCalendar();
-                    
-                    // Проверяем награду при входе (вдруг ДТ уже 100%)
                     checkDTReward();
                     
                 } catch (error) {
@@ -52,7 +49,6 @@
         });
     };
 
-    // Кнопка ВОЙТИ (регистрацию мы убрали)
     if (btnLogin) {
         btnLogin.addEventListener('click', function() {
             showAuthError('');
@@ -87,7 +83,6 @@
         return arr[Math.floor(Math.random() * arr.length)];
     }
 
-    // ==================== УВЕДОМЛЕНИЯ (TOASTS) ====================
     function showToast(character, type) {
         var charQuotes = quotes[character];
         if (!charQuotes || !charQuotes[type]) return;
@@ -118,7 +113,9 @@
     // ==================== DOM ЭЛЕМЕНТЫ ====================
     var taskForm = document.getElementById('task-form');
     var taskTitleInput = document.getElementById('task-title');
-    var taskDeadlineInput = document.getElementById('task-deadline');
+    var taskDateInput = document.getElementById('task-date');
+    var taskStartInput = document.getElementById('task-start');
+    var taskEndInput = document.getElementById('task-end');
     var taskSeveritySelect = document.getElementById('task-severity');
     var hpBar = document.getElementById('hp-bar');
     var hpValue = document.getElementById('hp-value');
@@ -144,7 +141,6 @@
     var HP_LOSS = { '1': 10, '2': 15, '3': 20 };
     var DT_GAIN = { '1': 10, '2': 15, '3': 20 };
 
-    // ==================== СИНХРОНИЗАЦИЯ С ОБЛАКОМ ====================
     function syncToCloud() {
         var user = window.firebaseAuth.currentUser;
         if (!user) return;
@@ -165,18 +161,30 @@
             .catch((e) => console.error("Ошибка синхронизации:", e));
     }
 
-    // ==================== ФУНКЦИИ ХРАНЕНИЯ ====================
-    function loadTasks() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e) { return []; } }
+    // ==================== ФУНКЦИИ ХРАНЕНИЯ И МИГРАЦИИ ====================
+    function loadTasks() { 
+        try { 
+            var tasks = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            // МИГРАЦИЯ: переводим старые задачи (с deadline) на новый формат (date + start/end)
+            return tasks.map(function(t) {
+                if (t.deadline && !t.date) {
+                    var d = new Date(t.deadline);
+                    t.date = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    t.endTime = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+                    t.startTime = '';
+                    delete t.deadline;
+                }
+                return t;
+            });
+        } catch(e) { return []; } 
+    }
     function saveTasks(tasks) { 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); 
         syncToCloud();
     }
     
     function loadClasses() { try { return JSON.parse(localStorage.getItem(CLASS_KEY)) || []; } catch(e) { return []; } }
-    function saveClasses(classes) { 
-        localStorage.setItem(CLASS_KEY, JSON.stringify(classes)); 
-        syncToCloud(); 
-    }
+    function saveClasses(classes) { localStorage.setItem(CLASS_KEY, JSON.stringify(classes)); syncToCloud(); }
 
     function loadHP() {
         try { var s = localStorage.getItem(HP_KEY); if (s !== null) { hp = parseInt(s, 10); if (isNaN(hp)) hp = 100; } } catch(e) { hp = 100; }
@@ -185,8 +193,7 @@
     function saveHP() {
         if (hp < 0) hp = 0; if (hp > 100) hp = 100;
         localStorage.setItem(HP_KEY, hp.toString());
-        updateHPBar();
-        syncToCloud();
+        updateHPBar(); syncToCloud();
     }
     
     function loadDT() {
@@ -196,9 +203,7 @@
     function saveDT() {
         if (dt < 0) dt = 0; if (dt > 100) dt = 100;
         localStorage.setItem(DT_KEY, dt.toString());
-        updateDTBar();
-        syncToCloud();
-        checkDTReward(); // <--- Исправление: проверяем награду сразу при сохранении ДТ
+        updateDTBar(); syncToCloud(); checkDTReward(); 
     }
     
     function loadStyle() {
@@ -208,25 +213,21 @@
     function saveStyle() {
         if (styleScore < 0) styleScore = 0;
         localStorage.setItem(STYLE_KEY, styleScore.toString());
-        updateStyleMeter();
-        syncToCloud();
+        updateStyleMeter(); syncToCloud();
     }
 
     // ==================== ОБНОВЛЕНИЕ UI ====================
     function createHPSegments() {
-        if(!hpBar) return;
-        hpBar.innerHTML = '';
+        if(!hpBar) return; hpBar.innerHTML = '';
         for (var i = 0; i < 10; i++) { var seg = document.createElement('div'); seg.className = 'hp-segment'; hpBar.appendChild(seg); }
     }
     function createDTSegments() {
-        if(!dtBar) return;
-        dtBar.innerHTML = '';
+        if(!dtBar) return; dtBar.innerHTML = '';
         for (var i = 0; i < 10; i++) { var seg = document.createElement('div'); seg.className = 'dt-segment'; if (i < 4) seg.classList.add('long'); dtBar.appendChild(seg); }
     }
 
     function updateHPBar() {
-        if(!hpValue || !hpBar) return;
-        hpValue.textContent = hp + '%';
+        if(!hpValue || !hpBar) return; hpValue.textContent = hp + '%';
         var segments = hpBar.querySelectorAll('.hp-segment');
         var activeCount = Math.round((hp / 100) * 10);
         for (var i = 0; i < segments.length; i++) {
@@ -234,15 +235,11 @@
             else { segments[i].classList.remove('active'); segments[i].classList.add('empty'); }
         }
         if (hp <= 30) hpBar.classList.add('low'); else hpBar.classList.remove('low');
-        if (hp <= 0) {
-            var deathScreen = document.getElementById('death-screen');
-            if(deathScreen) deathScreen.classList.remove('hidden');
-        }
+        if (hp <= 0) { var deathScreen = document.getElementById('death-screen'); if(deathScreen) deathScreen.classList.remove('hidden'); }
     }
 
     function updateDTBar() {
-        if(!dtValue || !dtBar) return;
-        dtValue.textContent = dt + '%';
+        if(!dtValue || !dtBar) return; dtValue.textContent = dt + '%';
         var segments = dtBar.querySelectorAll('.dt-segment');
         var activeCount = Math.round((dt / 100) * 10);
         for (var i = 0; i < segments.length; i++) {
@@ -263,8 +260,7 @@
         else if (styleScore >= 40) { rank = 'A'; }
         else if (styleScore >= 20) { rank = 'B'; }
         else if (styleScore >= 5) { rank = 'C'; }
-        styleRank.textContent = rank;
-        styleRank.className = 'style-rank ' + rankClass;
+        styleRank.textContent = rank; styleRank.className = 'style-rank ' + rankClass;
     }
 
     // ==================== ХЕЛПЕРЫ ====================
@@ -272,25 +268,18 @@
         var d = new Date(dateString);
         return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
     }
-    function getSeverityLabel(value) {
-        if (value === '1') return { text: 'MINOR', cls: 'minor' };
-        if (value === '3') return { text: 'CRITICAL', cls: 'critical' };
-        return { text: 'MAJOR', cls: '' };
-    }
     function escapeHtml(text) {
         var div = document.createElement('div'); div.appendChild(document.createTextNode(text)); return div.innerHTML;
     }
 
     // ==================== РЕНДЕР И ПРОВЕРКА ПРОСРОЧКИ ====================
     function renderTasks() {
-        if (typeof renderCalendar === "function") {
-            renderCalendar();
-        }
+        if (typeof renderCalendar === "function") renderCalendar();
     }
 
     function checkOverdueTasks() {
         var tasks = loadTasks();
-        var now = Date.now();
+        var now = new Date().getTime();
         var checkedKeys = JSON.parse(localStorage.getItem(CHECKED_KEY)) || {};
         var hpLost = 0;
         var dtMissed = false;
@@ -298,11 +287,13 @@
         for (var i = 0; i < tasks.length; i++) {
             var task = tasks[i];
             if (task.completed) continue;
-            var deadline = new Date(task.deadline).getTime();
-            if(isNaN(deadline)) continue;
+            
+            // Собираем время дедлайна из даты и времени конца
+            var endDateTime = new Date(task.date + 'T' + task.endTime).getTime();
+            if(isNaN(endDateTime)) continue;
 
-            var checkKey = task.id + '_' + new Date(deadline).toDateString();
-            if (now > deadline && !checkedKeys[checkKey]) {
+            var checkKey = task.id + '_' + task.date;
+            if (now > endDateTime && !checkedKeys[checkKey]) {
                 checkedKeys[checkKey] = true;
                 dtMissed = true;
                 hpLost += (HP_LOSS[task.severity] || 15);
@@ -310,15 +301,13 @@
         }
 
         if (hpLost > 0) {
-            hp -= hpLost;
-            saveHP();
+            hp -= hpLost; saveHP();
             var styleLost = Math.floor(hpLost / 2);
             if (styleLost < 5) styleLost = 5; 
             styleScore -= styleLost;
             if (styleScore < 0) styleScore = 0;
             
-            saveStyle(); 
-            showToast("Vergil", "scold");
+            saveStyle(); showToast("Vergil", "scold");
         }
         if (dtMissed) saveDT();
         localStorage.setItem(CHECKED_KEY, JSON.stringify(checkedKeys));
@@ -326,24 +315,20 @@
     }
 
     // ==================== ДЕЙСТВИЯ С ЗАДАЧАМИ ====================
-    function addTask(title, deadline, severity) {
+    function addTask(title, date, startTime, endTime, severity) {
         var tasks = loadTasks();
-        tasks.push({ id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), title: title, deadline: deadline, severity: severity, completed: false, createdAt: new Date().toISOString() });
-        saveTasks(tasks);
-        renderTasks();
-        checkOverdueTasks(); // <--- Проверяем просрочку сразу после добавления
+        tasks.push({ id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), title: title, date: date, startTime: startTime, endTime: endTime, severity: severity, completed: false, createdAt: new Date().toISOString() });
+        saveTasks(tasks); renderTasks(); checkOverdueTasks();
     }
 
     function deleteTask(id) {
         var tasks = loadTasks();
-        var filtered = [];
-        var deletedTask = null;
+        var filtered = []; var deletedTask = null;
         for (var i = 0; i < tasks.length; i++) {
             if (tasks[i].id !== id) filtered.push(tasks[i]);
             else deletedTask = tasks[i]; 
         }
-        saveTasks(filtered);
-        renderTasks();
+        saveTasks(filtered); renderTasks();
         if (deletedTask && !deletedTask.completed) showToast("Vergil", "scold"); 
     }
 
@@ -356,17 +341,16 @@
         if (!foundTask) return;
         saveTasks(tasks);
 
-        var now = Date.now();
-        var isOverdue = now > new Date(foundTask.deadline).getTime();
+        var now = new Date().getTime();
+        var endDateTime = new Date(foundTask.date + 'T' + foundTask.endTime).getTime();
+        var isOverdue = now > endDateTime;
         var severity = foundTask.severity;
 
         if (!isOverdue) {
             dt += (DT_GAIN[severity] || 15);
             var styleGain = (severity === '1') ? 5 : (severity === '3') ? 20 : 10;
             styleScore += styleGain;
-            saveDT(); 
-            saveStyle(); 
-            showToast("Dante","praise");
+            saveDT(); saveStyle(); showToast("Dante","praise");
         } else {
             showToast("Nero","praise");
         }
@@ -376,27 +360,19 @@
     // ==================== ЛОГИКА НАГРАДЫ ЗА ДТ ====================
     function checkDTReward() {
         if (dt < 100) return; 
-
         var today = new Date();
-        var dayOfWeek = today.getDay(); 
-
         var firstJan = new Date(today.getFullYear(), 0, 1);
         var days = Math.floor((today - firstJan) / (24 * 60 * 60 * 1000));
         var currentWeek = today.getFullYear() + '-' + Math.ceil((today.getDay() + 1 + days) / 7);
-        
         var lastClaimed = localStorage.getItem(REWARD_CLAIM_KEY);
 
-        // ВРЕМЕННО УБРАЛИ ПРОВЕРКУ НА ВЫХОДНЫЕ, ЧТОБЫ ТЫ МОГЛА ПРОВЕРИТЬ ОКНО
+        // ВРЕМЕННО УБРАЛИ ПРОВЕРКУ НА ВЫХОДНЫЕ
         if (lastClaimed !== currentWeek) {
             var savedReward = localStorage.getItem(REWARD_KEY) || '';
             var rewardInput = document.getElementById('dt-reward-input');
             if(rewardInput) rewardInput.value = savedReward;
-
             var modal = document.getElementById('dt-reward-modal');
-            if(modal) {
-                modal.classList.remove('hidden');
-                setTimeout(function() { modal.classList.add('show'); }, 50);
-            }
+            if(modal) { modal.classList.remove('hidden'); setTimeout(function() { modal.classList.add('show'); }, 50); }
         }
     }
 
@@ -405,11 +381,7 @@
         rewardIcon.addEventListener('click', function() {
             var currentReward = localStorage.getItem(REWARD_KEY) || '';
             var newReward = prompt("Ваша награда за полный Devil Trigger:", currentReward);
-            if (newReward !== null) {
-                localStorage.setItem(REWARD_KEY, newReward);
-                syncToCloud();
-                showToast("Dante", "praise");
-            }
+            if (newReward !== null) { localStorage.setItem(REWARD_KEY, newReward); syncToCloud(); showToast("Dante", "praise"); }
         });
     }
 
@@ -417,9 +389,7 @@
     if(saveRewardBtn) {
         saveRewardBtn.addEventListener('click', function() {
             var text = document.getElementById('dt-reward-input').value;
-            localStorage.setItem(REWARD_KEY, text);
-            syncToCloud();
-            showToast("Dante", "praise"); 
+            localStorage.setItem(REWARD_KEY, text); syncToCloud(); showToast("Dante", "praise"); 
         });
     }
 
@@ -430,14 +400,10 @@
             var firstJan = new Date(today.getFullYear(), 0, 1);
             var days = Math.floor((today - firstJan) / (24 * 60 * 60 * 1000));
             var currentWeek = today.getFullYear() + '-' + Math.ceil((today.getDay() + 1 + days) / 7);
-
             localStorage.setItem(REWARD_CLAIM_KEY, currentWeek);
-            dt = 0;
-            saveDT(); 
-
+            dt = 0; saveDT(); 
             var modal = document.getElementById('dt-reward-modal');
-            modal.classList.remove('show');
-            setTimeout(function() { modal.classList.add('hidden'); }, 500);
+            modal.classList.remove('show'); setTimeout(function() { modal.classList.add('hidden'); }, 500);
         });
     }
 
@@ -446,17 +412,17 @@
         taskForm.addEventListener('submit', function (e) {
             e.preventDefault();
             var title = taskTitleInput.value.trim();
-            var deadline = taskDeadlineInput.value;
+            var date = taskDateInput.value;
+            var startTime = taskStartInput.value;
+            var endTime = taskEndInput.value;
             var severity = taskSeveritySelect.value;
             
-            if (!title || !deadline) { alert('Пожалуйста, заполните все поля!'); return; }
+            if (!title || !date || !endTime) { alert('Пожалуйста, укажите название, дату и время конца!'); return; }
             
-            addTask(title, deadline, severity);
+            addTask(title, date, startTime, endTime, severity);
             showToast("Dante", "praise"); 
             
-            taskTitleInput.value = ''; 
-            taskDeadlineInput.value = ''; 
-            taskSeveritySelect.value = '2';
+            taskTitleInput.value = ''; taskDateInput.value = ''; taskStartInput.value = ''; taskEndInput.value = ''; taskSeveritySelect.value = '2';
         });
     }
 
@@ -465,11 +431,7 @@
     if (resetBtn) {
         resetBtn.addEventListener('click', function() {
             if (confirm("Сбросить HP до 100% и DT до 0%? Задачи останутся на месте.")) {
-                localStorage.removeItem(HP_KEY); 
-                localStorage.removeItem(DT_KEY); 
-                localStorage.removeItem(CHECKED_KEY); 
-                localStorage.removeItem(STYLE_KEY); 
-                
+                localStorage.removeItem(HP_KEY); localStorage.removeItem(DT_KEY); localStorage.removeItem(CHECKED_KEY); localStorage.removeItem(STYLE_KEY); 
                 hp = 100; dt = 0; styleScore = 0;
                 saveHP(); saveDT(); updateStyleMeter(); renderTasks(); showToast("Dante", "praise");
             }
@@ -482,7 +444,9 @@
         var today = new Date(); today.setHours(23, 59, 0, 0);
         var tzOffset = today.getTimezoneOffset() * 60000;
         var localISOTime = (new Date(today - tzOffset)).toISOString().slice(0, 16);
-        addTask(trialName, localISOTime, '3');
+        // Для возрождения ставим время дедлайна на 23:59
+        var todayStr = new Date().toISOString().split('T')[0];
+        addTask(trialName, todayStr, '', '23:59', '3');
         showToast("Vergil", "praise");
     };
 
@@ -505,28 +469,21 @@
         
         var currentYear = currentDate.getFullYear();
         var currentMonth = currentDate.getMonth();
-        
         var startDate, endDate;
 
         if (calendarView === 'week') {
-            startDate = new Date(currentDate);
-            startDate.setHours(0, 0, 0, 0);
+            startDate = new Date(currentDate); startDate.setHours(0, 0, 0, 0);
             var dayOfWeek = startDate.getDay() || 7;
             startDate.setDate(startDate.getDate() - (dayOfWeek - 1));
-            
-            endDate = new Date(startDate);
-            endDate.setDate(startDate.getDate() + 6);
-            
+            endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 6);
             monthLabel.textContent = monthNames[startDate.getMonth()] + ' ' + startDate.getFullYear();
         } else {
             startDate = new Date(currentYear, currentMonth, 1);
             var firstDay = startDate.getDay() || 7; 
             startDate.setDate(1 - (firstDay - 1)); 
-            
             endDate = new Date(currentYear, currentMonth + 1, 0); 
             var lastDay = endDate.getDay() || 7;
             endDate.setDate(endDate.getDate() + (7 - lastDay)); 
-            
             monthLabel.textContent = monthNames[currentMonth] + ' ' + currentYear;
         }
 
@@ -548,16 +505,14 @@
             var dateStr = loopDate.getFullYear() + '-' + String(loopDate.getMonth() + 1).padStart(2, '0') + '-' + String(loopDate.getDate()).padStart(2, '0');
 
             tasks.forEach(function(task) {
-                if (!task.deadline) return;
-                var tDate = new Date(task.deadline);
-                var tDateStr = tDate.getFullYear() + '-' + String(tDate.getMonth() + 1).padStart(2, '0') + '-' + String(tDate.getDate()).padStart(2, '0');
-                
-                if (tDateStr === dateStr) {
+                if (task.date === dateStr) {
                     if (task.completed) {
                         hasArchive = true;
                     } else {
                         hasTask = true;
-                        if (tDate.getTime() < today.getTime()) hasOverdue = true;
+                        // Сравниваем время конца, чтобы понять, просрочено ли
+                        var endDateTime = new Date(task.date + 'T' + task.endTime).getTime();
+                        if (endDateTime < today.getTime()) hasOverdue = true;
                     }
                 }
             });
@@ -603,37 +558,29 @@
         var tasks = loadTasks();
         var classes = loadClasses();
 
-        // Выводим пары (синие) + кнопки управления
         classes.filter(c => c.date === dateStr).sort((a,b) => a.startTime.localeCompare(b.startTime)).forEach(function(cls) {
             var div = document.createElement('div');
             div.className = 'modal-item blue';
-            
             var innerHTML = '<strong>' + cls.startTime + ' - ' + cls.endTime + '</strong><br>' + cls.title + ' (' + cls.type + ', ' + cls.room + ')';
-            
-            // Кнопки для пар
             innerHTML += '<div style="margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap;">' +
                          '<button class="btn-complete" onclick="window.editClass(\'' + cls.id + '\', \'' + dateStr + '\')">ИЗМЕНИТЬ</button>' +
                          '<button style="background:#c0a060; color:#000; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;" onclick="window.moveClass(\'' + cls.id + '\', \'' + dateStr + '\')">ПЕРЕДВИНУТЬ</button>' +
                          '<button class="btn-delete" onclick="window.deleteClass(\'' + cls.id + '\', \'' + dateStr + '\')">УДАЛИТЬ</button>' +
                          '</div>';
-                         
-            div.innerHTML = innerHTML;
-            list.appendChild(div);
+            div.innerHTML = innerHTML; list.appendChild(div);
         });
 
-        // Выводим задачи (красные) + кнопки управления
         tasks.forEach(function(task) {
-            if (!task.deadline) return;
-            var tDate = new Date(task.deadline);
-            var tDateStr = tDate.getFullYear() + '-' + String(tDate.getMonth() + 1).padStart(2, '0') + '-' + String(tDate.getDate()).padStart(2, '0');
-            
-            if (tDateStr === dateStr) {
+            if (task.date === dateStr) {
                 if (isArchiveView && !task.completed) return;
                 if (!isArchiveView && task.completed) return;
 
                 var div = document.createElement('div');
                 div.className = 'modal-item red';
-                var timeStr = String(tDate.getHours()).padStart(2, '0') + ':' + String(tDate.getMinutes()).padStart(2, '0');
+                
+                // Отображение времени: если есть старт, показываем диапазон
+                var timeStr = task.startTime ? (task.startTime + ' - ' + task.endTime) : ('До ' + task.endTime);
+                
                 var innerHTML = '<strong>' + timeStr + '</strong> - ' + task.title + (task.completed ? ' (Done)' : '');
                 
                 if (!task.completed) {
@@ -643,8 +590,7 @@
                                  '<button style="background:#c0a060; color:#000; border:none; border-radius:3px; padding:5px 10px; cursor:pointer;" onclick="window.moveTaskFromModal(\'' + task.id + '\', \'' + dateStr + '\')">MOVE</button>' +
                                  '</div>';
                 }
-                div.innerHTML = innerHTML;
-                list.appendChild(div);
+                div.innerHTML = innerHTML; list.appendChild(div);
             }
         });
 
@@ -655,41 +601,31 @@
     // ==================== КНОПКИ В МОДАЛКЕ ЗАДАЧ ====================
     window.completeFromModal = function(id, dateStr) {
         completeTask(id);
-        var d = new Date(dateStr + 'T12:00:00Z'); 
-        showDayDetails(dateStr, d);
+        var d = new Date(dateStr + 'T12:00:00Z'); showDayDetails(dateStr, d);
     };
 
     window.deleteFromModal = function(id, dateStr) {
         deleteTask(id);
-        var d = new Date(dateStr + 'T12:00:00Z');
-        showDayDetails(dateStr, d);
+        var d = new Date(dateStr + 'T12:00:00Z'); showDayDetails(dateStr, d);
     };
 
     window.moveTaskFromModal = function(id, currentDateStr) {
-        var newDate = prompt("Введите новую дату и время (Формат: ГГГГ-ММ-ДДTЧЧ:ММ):", currentDateStr + "T12:00");
+        var newDate = prompt("Введите новую дату (Формат: ГГГГ-ММ-ДД):", currentDateStr);
         if (newDate) {
             var tasks = loadTasks();
             for(var i=0; i<tasks.length; i++) {
-                if(tasks[i].id === id) {
-                    tasks[i].deadline = newDate; 
-                    tasks[i].completed = false;  
-                    break;
-                }
+                if(tasks[i].id === id) { tasks[i].date = newDate; tasks[i].completed = false; break; }
             }
             saveTasks(tasks); renderTasks(); renderCalendar();
-            document.getElementById('day-modal').classList.add('hidden'); 
-            showToast("Nero", "scold"); 
+            document.getElementById('day-modal').classList.add('hidden'); showToast("Nero", "scold"); 
         }
     };
 
     // ==================== КНОПКИ В МОДАЛКЕ ПАР ====================
     window.deleteClass = function(id, dateStr) {
         if(confirm("Удалить эту пару?")) {
-            var classes = loadClasses();
-            var filtered = classes.filter(c => c.id !== id);
-            saveClasses(filtered);
-            var d = new Date(dateStr + 'T12:00:00Z');
-            showDayDetails(dateStr, d);
+            var classes = loadClasses(); var filtered = classes.filter(c => c.id !== id);
+            saveClasses(filtered); var d = new Date(dateStr + 'T12:00:00Z'); showDayDetails(dateStr, d);
         }
     };
 
@@ -697,15 +633,8 @@
         var newDate = prompt("Введите новую дату (Формат: ГГГГ-ММ-ДД):", currentDateStr);
         if (newDate) {
             var classes = loadClasses();
-            for(var i=0; i<classes.length; i++) {
-                if(classes[i].id === id) {
-                    classes[i].date = newDate;
-                    break;
-                }
-            }
-            saveClasses(classes); 
-            renderCalendar();
-            document.getElementById('day-modal').classList.add('hidden');
+            for(var i=0; i<classes.length; i++) { if(classes[i].id === id) { classes[i].date = newDate; break; } }
+            saveClasses(classes); renderCalendar(); document.getElementById('day-modal').classList.add('hidden');
         }
     };
 
@@ -713,36 +642,18 @@
         var classes = loadClasses();
         for(var i=0; i<classes.length; i++) {
             if(classes[i].id === id) {
-                var newTitle = prompt("Название предмета:", classes[i].title);
-                if (newTitle === null) return; 
-                
-                var newRoom = prompt("Аудитория:", classes[i].room);
-                if (newRoom === null) return;
-                
-                var newStart = prompt("Время начала (ЧЧ:ММ):", classes[i].startTime);
-                if (newStart === null) return;
-                
-                var newEnd = prompt("Время конца (ЧЧ:ММ):", classes[i].endTime);
-                if (newEnd === null) return;
-
-                classes[i].title = newTitle;
-                classes[i].room = newRoom;
-                classes[i].startTime = newStart;
-                classes[i].endTime = newEnd;
-                break;
+                var newTitle = prompt("Название предмета:", classes[i].title); if (newTitle === null) return; 
+                var newRoom = prompt("Аудитория:", classes[i].room); if (newRoom === null) return;
+                var newStart = prompt("Время начала (ЧЧ:ММ):", classes[i].startTime); if (newStart === null) return;
+                var newEnd = prompt("Время конца (ЧЧ:ММ):", classes[i].endTime); if (newEnd === null) return;
+                classes[i].title = newTitle; classes[i].room = newRoom; classes[i].startTime = newStart; classes[i].endTime = newEnd; break;
             }
         }
-        saveClasses(classes);
-        var d = new Date(dateStr + 'T12:00:00Z');
-        showDayDetails(dateStr, d);
+        saveClasses(classes); var d = new Date(dateStr + 'T12:00:00Z'); showDayDetails(dateStr, d);
     };
 
     var closeModalBtn = document.getElementById('close-modal');
-    if(closeModalBtn) {
-        closeModalBtn.addEventListener('click', function() {
-            document.getElementById('day-modal').classList.add('hidden');
-        });
-    }
+    if(closeModalBtn) { closeModalBtn.addEventListener('click', function() { document.getElementById('day-modal').classList.add('hidden'); }); }
 
     // ==================== ЗАМЕТКИ ====================
     var saveNoteBtn = document.getElementById('save-note-btn');
@@ -751,11 +662,8 @@
             var dateStr = document.getElementById('modal-date-title').getAttribute('data-date');
             var noteText = document.getElementById('day-note-input').value;
             var notes = JSON.parse(localStorage.getItem(NOTES_KEY)) || {};
-            if (noteText.trim() === '') delete notes[dateStr];
-            else notes[dateStr] = noteText;
-            localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-            syncToCloud();
-            showToast("Dante", "praise"); 
+            if (noteText.trim() === '') delete notes[dateStr]; else notes[dateStr] = noteText;
+            localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); syncToCloud(); showToast("Dante", "praise"); 
         });
     }
 
@@ -806,13 +714,9 @@
     if (classTimePreset) {
         classTimePreset.addEventListener('change', function() {
             if (this.value === 'custom') {
-                customTimeInputs.style.display = 'flex';
-                classStartInput.required = true;
-                classEndInput.required = true;
+                customTimeInputs.style.display = 'flex'; classStartInput.required = true; classEndInput.required = true;
             } else {
-                customTimeInputs.style.display = 'none';
-                classStartInput.required = false;
-                classEndInput.required = false;
+                customTimeInputs.style.display = 'none'; classStartInput.required = false; classEndInput.required = false;
             }
         });
     }
@@ -821,56 +725,27 @@
     if (classForm) {
         classForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            
-            var startTime = '';
-            var endTime = '';
-            
+            var startTime = ''; var endTime = '';
             if (classTimePreset.value === 'custom') {
-                startTime = classStartInput.value;
-                endTime = classEndInput.value;
-                if (!startTime || !endTime) {
-                    alert('Пожалуйста, укажите время начала и конца!');
-                    return;
-                }
+                startTime = classStartInput.value; endTime = classEndInput.value;
+                if (!startTime || !endTime) { alert('Пожалуйста, укажите время начала и конца!'); return; }
             } else {
-                var times = classTimePreset.value.split('-');
-                startTime = times[0];
-                endTime = times[1];
+                var times = classTimePreset.value.split('-'); startTime = times[0]; endTime = times[1];
             }
-
             var classes = loadClasses();
             classes.push({
-                id: Date.now().toString(),
-                date: document.getElementById('class-date').value,
-                startTime: startTime,
-                endTime: endTime,
-                title: document.getElementById('class-title').value,
-                type: document.getElementById('class-type').value,
-                room: document.getElementById('class-room').value
+                id: Date.now().toString(), date: document.getElementById('class-date').value,
+                startTime: startTime, endTime: endTime, title: document.getElementById('class-title').value,
+                type: document.getElementById('class-type').value, room: document.getElementById('class-room').value
             });
-            
-            saveClasses(classes); 
-            this.reset(); 
-            
-            customTimeInputs.style.display = 'none';
-            classStartInput.required = false;
-            classEndInput.required = false;
-            
+            saveClasses(classes); this.reset(); 
+            customTimeInputs.style.display = 'none'; classStartInput.required = false; classEndInput.required = false;
             renderCalendar();
         });
     }
 
     // ==================== ИНИЦИАЛИЗАЦИЯ ====================
-    createHPSegments(); 
-    createDTSegments(); 
-    loadHP(); 
-    loadDT(); 
-    loadStyle(); 
-    renderTasks(); 
-    renderCalendar(); 
-    checkOverdueTasks();
-    checkDTReward(); 
-    
+    createHPSegments(); createDTSegments(); loadHP(); loadDT(); loadStyle(); renderTasks(); renderCalendar(); checkOverdueTasks(); checkDTReward(); 
     setInterval(checkOverdueTasks, 60000);
 
 })();
